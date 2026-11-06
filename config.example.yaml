@@ -1,0 +1,22 @@
+timezone: Europe/Bucharest
+poll_interval_seconds: 30
+deadline_minutes_after_target: 15
+ntp_servers:
+  - time.cloudflare.com
+  - pool.ntp.org
+browser_profile_dir: data/browser-profile
+browser_mode: persistent
+browser_cdp_endpoint: http://127.0.0.1:9222
+database_path: data/emag_autobuy.sqlite3
+product:
+  product_url: https://www.emag.ro/exemplu-produs/pd/EXEMPLU/
+  max_price_ron: 5.00
+  quantity: 1
+  target_date: '2099-01-01'
+  target_time: '12:00:00'
+  max_attempts: 3
+  must_be_in_stock: true
+  is_digital_ticket: false
+  poll_interval_seconds: 30
+  deadline_minutes_after_target: 15
+  timezone_name: Europe/Bucharest

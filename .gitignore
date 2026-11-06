@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+data/*
+!data/.gitkeep
+logs/*
+!logs/.gitkeep
+*.sqlite3
+/config.yaml
+/README_CHAT_NOU.md
+/.vercel/
+/.env
+/.env.*
+node_modules/

@@ -1,0 +1,5 @@
+streamlit>=1.37,<2
+playwright>=1.50,<2
+PyYAML>=6.0,<7
+ntplib>=0.4,<1
+tzdata>=2024.2
