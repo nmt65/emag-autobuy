@@ -77,6 +77,15 @@ class WorkerController:
             raise ValueError("Configure no more than 10 products per monitoring run.")
         for item in configs:
             item.validate()
+        unverified = sorted(
+            {item.market.code.upper() for item in configs if not item.market.verified_for_automation}
+        )
+        if unverified:
+            markets = ", ".join(unverified)
+            raise ValueError(
+                f"eMAG {markets} automation is disabled until its real product and checkout "
+                "DOM have been inspected and verified. No browser action was started."
+            )
         if browser_mode not in {"persistent", "chrome_cdp"}:
             raise ValueError("Choose a supported browser mode.")
         if browser_mode == "chrome_cdp":

@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 import re
+import subprocess
+import sys
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -11,6 +13,7 @@ import streamlit as st
 from browser.manager import validate_cdp_endpoint
 from core.conditions import ConfigurationError, ProductConfig
 from core.config import AppSettings, load_settings, save_settings
+from core.markets import MarketUrlError, market_for_url
 from core.runtime import WorkerController
 from database.db import Database
 
@@ -47,13 +50,18 @@ def _draft_row(product: ProductConfig) -> dict:
 
 
 def _parse_product_row(row: dict) -> ProductConfig:
+    product_url = str(row["product_url"]).strip()
     try:
         price = Decimal(str(row["max_price_ron"])).quantize(Decimal("0.01"))
         target_date = date.fromisoformat(str(row["target_date"]))
     except (InvalidOperation, ValueError, TypeError) as exc:
-        raise ConfigurationError("Enter a valid RON price and target date for each product.") from exc
+        raise ConfigurationError("Enter a valid market price and target date for each product.") from exc
+    try:
+        market = market_for_url(product_url)
+    except MarketUrlError as exc:
+        raise ConfigurationError(str(exc)) from exc
     product = ProductConfig(
-        product_url=str(row["product_url"]).strip(),
+        product_url=product_url,
         max_price_ron=price,
         quantity=int(row["quantity"]),
         target_date=target_date.isoformat(),
@@ -63,7 +71,7 @@ def _parse_product_row(row: dict) -> ProductConfig:
         is_digital_ticket=bool(row.get("is_digital_ticket", False)),
         poll_interval_seconds=int(row["poll_interval_seconds"]),
         deadline_minutes_after_target=int(row["deadline_minutes_after_target"]),
-        timezone_name="Europe/Bucharest",
+        timezone_name=market.timezone_name,
     )
     product.validate()
     return product
@@ -86,19 +94,19 @@ def _settings_with_products(
     products = tuple(_parse_product_row(row) for row in rows)
     if len(products) > MAX_PRODUCTS:
         raise ConfigurationError(f"You can configure at most {MAX_PRODUCTS} products.")
-    codes: set[str] = set()
+    codes: set[tuple[str, str]] = set()
     for product in products:
         match = re.search(r"/pd/([^/?#]+)", product.product_url, re.IGNORECASE)
         if match is None:
             raise ConfigurationError("Every URL must contain a valid eMAG product code.")
-        code = match.group(1).casefold()
-        if code in codes:
+        key = (product.market.code, match.group(1).casefold())
+        if key in codes:
             raise ConfigurationError("Each product can appear only once in the list.")
-        codes.add(code)
+        codes.add(key)
     return AppSettings(
         product=products[0],
         additional_products=products[1:],
-        timezone_name="Europe/Bucharest",
+        timezone_name=products[0].timezone_name,
         poll_interval_seconds=current.poll_interval_seconds,
         deadline_minutes_after_target=current.deadline_minutes_after_target,
         ntp_servers=current.ntp_servers,
@@ -136,12 +144,9 @@ if not st.session_state.draft_products:
 st.title("eMAG AutoBuy")
 st.caption("Monitorizare programată pentru produse eMAG, cu stare și jurnal separate.")
 st.info(
-    "Poți monitoriza simultan până la 10 produse. Verificările folosesc o singură fereastră "
-    "vizibilă, serializată, pentru a evita amestecarea sesiunii sau a coșului. În modul de "
-    "test, aplicația nu modifică coșul. În modul live, toate produsele trebuie să îndeplinească "
-    "condițiile; apoi sunt adăugate serial în coșul comun și verificate ca o singură comandă. "
-    "Dacă produsul nu se califică, fluxul nu începe coșul; dacă un rând sau total nu poate fi "
-    "verificat, browserul rămâne deschis pentru verificarea ta."
+    "Poți configura simultan până la 10 produse. Fluxul de monitorizare și coș comun este "
+    "verificat numai pentru eMAG România. Pentru Ungaria aplicația recunoaște moneda și fusul "
+    "local, dar Start rămâne dezactivat până când produsul și checkoutul HU sunt inspectate."
 )
 st.warning(
     "Modul Test este activ implicit. Dacă îl dezactivezi, fluxul live "
@@ -152,11 +157,24 @@ st.warning(
     "Nu reîncearcă o comandă cu rezultat incert. CAPTCHA și 3-D Secure rămân pași manuali. "
     "Comenzile cu mai multe produse folosesc un singur total comun."
 )
+unverified_markets = sorted(
+    {
+        product.market.code.upper()
+        for product in settings.products
+        if not product.market.verified_for_automation
+    }
+)
+if unverified_markets:
+    st.warning(
+        "Piețe configurate: " + ", ".join(unverified_markets) + ". "
+        "Aplicația recunoaște moneda și fusul orar local, dar monitorizarea și pregătirea coșului "
+        "sunt dezactivate până la verificarea paginii reale de produs și checkout pentru fiecare piață."
+    )
 
 st.subheader("Browser pentru eMAG")
 browser_modes = {
     "Profil Playwright separat": "persistent",
-    "Chrome existent, deja autentificat (localhost CDP)": "chrome_cdp",
+    "Chrome separat, pornit manual cu endpoint CDP local": "chrome_cdp",
 }
 current_mode_label = next(
     (label for label, mode in browser_modes.items() if mode == settings.browser_mode),
@@ -177,10 +195,12 @@ if browser_mode == "chrome_cdp":
         help="Acceptă doar localhost, de exemplu http://127.0.0.1:9222. Nu folosi un endpoint de rețea.",
         key="browser_cdp_endpoint",
     )
-    st.info(
-        "Chrome trebuie să aibă Remote Debugging activat manual. Aplicația folosește un tab nou "
-        "în profilul autentificat și nu închide taburile tale. Dacă endpointul nu este disponibil, "
-        "fluxul se oprește; nu pornește un browser neautentificat ca rezervă."
+    st.warning(
+        "Acest endpoint funcționează numai cu o instanță Chrome pornită separat cu "
+        "--remote-debugging-port și un director de profil dedicat. Nu se conectează la profilul "
+        "Chrome principal. Chrome 136+ refuză portul pe directorul implicit; comutatorul din "
+        "chrome://inspect/#remote-debugging este pentru Chrome DevTools MCP, pe care aplicația "
+        "Python nu îl folosește."
     )
 
 add_col, remove_col = st.columns([1, 2])
@@ -217,7 +237,7 @@ with remove_col:
 
 with st.form("products_configuration"):
     form_rows: list[dict] = []
-    today = datetime.now(ZoneInfo("Europe/Bucharest")).date()
+    today = datetime.now(ZoneInfo(settings.timezone_name)).date()
     for index, initial in enumerate(st.session_state.draft_products):
         row_key = initial.get("_key", f"row-{index}")
         st.subheader(f"Produs {index + 1}")
@@ -226,11 +246,20 @@ with st.form("products_configuration"):
             product_url = st.text_input(
                 "Product URL",
                 value=initial["product_url"],
-                placeholder="https://www.emag.ro/.../pd/CODPRODUS/",
+                placeholder="https://www.emag.hu/.../pd/CODPRODUS/",
                 key=f"product_{row_key}_url",
             )
+            try:
+                row_market = market_for_url(product_url)
+                price_label = f"Preț maxim / unitate ({row_market.currency})"
+                timezone_label = row_market.timezone_name
+                target_today = datetime.now(ZoneInfo(timezone_label)).date()
+            except MarketUrlError:
+                price_label = "Preț maxim / unitate (moneda eMAG)"
+                timezone_label = "Europe/Bucharest"
+                target_today = today
             max_price = st.text_input(
-                "Preț maxim / unitate (RON)",
+                price_label,
                 value=initial["max_price_ron"],
                 key=f"product_{row_key}_max_price",
             )
@@ -256,14 +285,14 @@ with st.form("products_configuration"):
             try:
                 initial_date = date.fromisoformat(str(initial["target_date"]))
             except ValueError:
-                initial_date = today
+                initial_date = target_today
             target_date = st.date_input(
                 "Data țintă",
                 value=initial_date,
                 key=f"product_{row_key}_date",
             )
             target_time = st.text_input(
-                "Ora țintă (HH:MM:SS, Europe/Bucharest)",
+                f"Ora țintă (HH:MM:SS, {timezone_label})",
                 value=str(initial["target_time"]),
                 key=f"product_{row_key}_time",
             )
@@ -331,13 +360,60 @@ test_mode = st.checkbox(
     key="test_mode",
 )
 
+st.subheader("Inspecție manuală eMAG HU")
+st.caption(
+    "Deschide URL-ul într-o fereastră locală Playwright. Navigarea este manuală: "
+    "nu se citesc selectori și nu se modifică produsul sau coșul. CAPTCHA rămâne în sarcina ta."
+)
+initial_hu_url = next(
+    (product.product_url for product in settings.products if product.market.code == "hu"),
+    "",
+)
+manual_hu_url = st.text_input(
+    "URL HU pentru inspecție",
+    value=initial_hu_url,
+    placeholder="https://www.emag.hu/...",
+    key="manual_hu_url",
+)
+manual_hu_url_valid = False
+if manual_hu_url.strip():
+    try:
+        manual_hu_url_valid = market_for_url(manual_hu_url).code == "hu"
+    except MarketUrlError as exc:
+        st.error(str(exc))
+if st.button(
+    "Deschide pagina HU acum",
+    disabled=controller.is_running() or not manual_hu_url_valid,
+    key="open_hu_manual_page",
+):
+    try:
+        subprocess.Popen(
+            [
+                sys.executable,
+                str(Path(__file__).resolve().parent / "browser" / "open_page.py"),
+                "--url",
+                manual_hu_url.strip(),
+                "--profile-dir",
+                str(settings.resolved_path(settings.browser_profile_dir)),
+            ],
+            cwd=Path(__file__).resolve().parent,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        st.success("Fereastra Playwright HU a fost pornită.")
+    except OSError as exc:
+        st.error(f"Nu am putut porni fereastra Playwright: {exc}")
+
 
 @st.fragment(run_every="3s")
 def live_status() -> None:
     start_col, stop_col, resume_col = st.columns(3)
     with start_col:
         start_clicked = st.button(
-            "Pornește monitorizarea", type="primary", disabled=controller.is_running()
+            "Pornește monitorizarea",
+            type="primary",
+            disabled=controller.is_running() or bool(unverified_markets),
         )
     with stop_col:
         stop_clicked = st.button("Oprește", disabled=not controller.is_running())
@@ -492,8 +568,8 @@ live_status()
 with st.expander("Profil browser și confidențialitate"):
     st.write(
         (
-            "Se conectează la Chrome-ul existent pe endpointul localhost configurat. "
-            "Oprește Remote Debugging în Chrome după sesiune."
+            "Se conectează doar la o instanță Chrome separată, pornită manual cu endpointul CDP local. "
+            "Nu se conectează la profilul Chrome principal."
             if settings.browser_mode == "chrome_cdp"
             else "Autentifică-te manual în browserul vizibil. Sesiunea este păstrată local."
         )

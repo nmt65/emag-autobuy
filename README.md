@@ -2,7 +2,7 @@
 
 Aplicație **locală** pentru monitorizarea produselor eMAG și pregătirea unui coș comun. Folosește Python 3.12+, Playwright, Streamlit, SQLite și PyYAML; este gândită pentru Windows 11.
 
-**Suportul implementat acum este doar pentru eMAG România (`emag.ro`, RON, Europe/Bucharest).** Domeniile Bulgaria și Ungaria nu sunt încă acceptate de validare sau de adaptoarele DOM. Vezi planul de extindere în [`docs/MULTI_MARKET_PLAN.md`](docs/MULTI_MARKET_PLAN.md). Pagina Vercel menționează aceeași limită.
+**Fluxul eMAG verificat este doar pentru România (`emag.ro`, RON, Europe/Bucharest).** Aplicația recunoaște și setările de piață pentru Ungaria (`emag.hu`, HUF, Europe/Budapest), dar oprește pornirea monitorizării până când pagina reală de produs și checkout pot fi inspectate. Linkul HU trimis în această sesiune a redirecționat de la 404 la pagina principală, apoi site-ul a afișat o verificare anti-bot. Nu sunt activați selectori inventați și nu se ocolește verificarea. Vezi [`docs/MULTI_MARKET_PLAN.md`](docs/MULTI_MARKET_PLAN.md). Pagina Vercel descrie aceeași limită.
 
 Codul este public sub licența MIT. Proiectul Vercel inclus în acest repository publică doar pagina informativă statică din `public/`; nu găzduiește dashboardul, profilul Playwright, baza SQLite sau fluxul de cumpărare. Pornește aplicația pe calculatorul tău urmând pașii de mai jos.
 
@@ -73,12 +73,12 @@ Dacă PowerShell blochează activarea mediului:
 .\.venv\Scripts\python.exe main.py
 ```
 
-Deschide `http://127.0.0.1:8501`. Aplicația ascultă doar local.
+`main.py` deschide automat dashboardul în browserul local la `http://127.0.0.1:8501`; aplicația ascultă doar local. Când apeși **Pornește monitorizarea**, Playwright deschide imediat o fereastră vizibilă și apoi așteaptă ora programată. Pentru Ungaria există și **Deschide pagina HU acum**, care doar navighează la URL-ul introdus, fără să citească sau să apese elemente.
 
 1. Adaugă URL-ul eMAG și setează produsul, cantitatea, plafonul unitar și ora Europe/Bucharest. Bifează explicit „Este bilet digital” numai pentru bilete.
 2. Apasă **Salvează lista de produse**.
 3. Lasă **Mod Test** bifat pentru prima verificare. Testul nu adaugă produsul în coș.
-4. Implicit se deschide un profil Playwright separat; autentifică-te manual în el dacă eMAG cere login. Pentru Chrome-ul tău deja autentificat, vezi secțiunea de mai jos. CAPTCHA și 3-D Secure sunt pași manuali.
+4. Profilul persistent Playwright se deschide vizibil; autentifică-te manual în el dacă eMAG cere login. CAPTCHA și 3-D Secure sunt pași manuali.
 5. Fluxul live comun poate continua doar dacă fiecare produs se califică, site-ul arată confirmarea destinatarului biletului digital și suma totală de checkout este cel mult 100 RON. Altfel browserul rămâne deschis pentru verificare manuală.
 
 ## Testare locală
@@ -89,13 +89,17 @@ Deschide `http://127.0.0.1:8501`. Aplicația ascultă doar local.
 
 Testele folosesc fixture-uri locale Playwright, ceasuri simulate și DB/browser mock-uite. Ele verifică parserul de preț, starea stocului, cantitatea, totalul cu taxe, pragul de 100 RON, confirmarea destinatarului, butonul final unic, protecția anti-duplicat și programarea. **Nu verifică eMAG live și nu demonstrează că pasul real pentru bilete funcționează.**
 
-## Folosește Chrome-ul deja autentificat
+## Profil Chrome și endpoint CDP
 
-Chrome-ul principal poate fi controlat doar după activarea explicită a Remote Debugging. În Chrome 144 sau mai nou, deschide `chrome://inspect/#remote-debugging`, activează opțiunea și aprobă dialogul Chrome dacă apare. Această setare oferă control local asupra sesiunii Chrome; activeaz-o doar când folosești aplicația și oprește-o după sesiune.
+Pentru utilizarea obișnuită, alege **Profil Playwright separat** și autentifică-te manual o singură dată în fereastra persistentă a aplicației. Profilul este stocat local.
 
-În dashboard alege **Chrome existent, deja autentificat (localhost CDP)**, păstrează endpointul local `http://127.0.0.1:9222`, apoi apasă **Salvează lista de produse**. Aplicația creează un tab nou în sesiunea Chrome existentă și lasă taburile tale deschise. Endpointurile din rețea sunt respinse. Dacă nu se poate conecta, fluxul se oprește și nu pornește pe ascuns un profil neautentificat.
+Modul **Chrome separat, pornit manual cu endpoint CDP local** funcționează doar cu o instanță Chrome pornită cu `--remote-debugging-port=9222` și un director de profil dedicat. De exemplu, în PowerShell, după ce verifici calea instalării Chrome:
 
-Pentru Chrome mai vechi, rămâne disponibil profilul Playwright separat; autentificarea în acel profil se face o singură dată și se păstrează local.
+```powershell
+& "$env:ProgramFiles\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="$env:LOCALAPPDATA\eMAG-AutoBuy-Chrome"
+```
+
+Asta creează un profil Chrome separat în care te autentifici manual; nu folosește profilul principal deja autentificat. Chrome 136+ ignoră `--remote-debugging-port` pentru directorul implicit de date Chrome. Opțiunea din Chrome 144+ la `chrome://inspect/#remote-debugging` aparține fluxului Chrome DevTools MCP; aplicația Python de aici nu se conectează prin acel protocol. [Documentația Chrome despre conectarea automată](https://developer.chrome.com/docs/devtools/agents/get-started/configuration) și [schimbarea de securitate din Chrome 136](https://developer.chrome.com/blog/remote-debugging-port).
 
 ## Fișiere principale
 
@@ -103,6 +107,7 @@ Pentru Chrome mai vechi, rămâne disponibil profilul Playwright separat; autent
 - `main.py`: pornirea Streamlit pe localhost
 - `config.yaml`: configurație
 - `browser/manager.py`: profil Playwright persistent
+- `browser/open_page.py`: deschidere manuală, vizibilă, a unui URL HU
 - `browser/emag.py`: citire pagină, coș, ticket email și checkout vizibile
 - `core/checkout.py`: reguli de verificare și pragul de 100 RON
 - `core/runtime.py`: scheduler și fluxul workerului

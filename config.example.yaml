@@ -10,7 +10,9 @@ browser_cdp_endpoint: http://127.0.0.1:9222
 database_path: data/emag_autobuy.sqlite3
 product:
   product_url: https://www.emag.ro/exemplu-produs/pd/EXEMPLU/
-  max_price_ron: 5.00
+  max_price_native: 5.00
+  currency: RON
+  market: ro
   quantity: 1
   target_date: '2099-01-01'
   target_time: '12:00:00'

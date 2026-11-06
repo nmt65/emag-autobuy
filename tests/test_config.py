@@ -51,6 +51,27 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(loaded.browser_mode, "chrome_cdp")
         self.assertEqual(loaded.browser_cdp_endpoint, "http://127.0.0.1:9222")
 
+    def test_hungary_product_round_trips_native_currency_and_timezone(self):
+        product = ProductConfig(
+            product_url="https://www.emag.hu/termek/pd/AB12CD3BM/",
+            max_price_ron=Decimal("59990"),
+            quantity=2,
+            target_date="2026-11-06",
+            target_time="12:30:45",
+            max_attempts=2,
+            timezone_name="Europe/Budapest",
+        )
+        settings = AppSettings(product=product, timezone_name="Europe/Budapest")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "hungary.yaml"
+            save_settings(settings, path)
+            loaded = load_settings(path)
+
+        self.assertEqual(loaded.product.max_price_ron, Decimal("59990"))
+        self.assertEqual(loaded.product.currency, "HUF")
+        self.assertEqual(loaded.product.timezone_name, "Europe/Budapest")
+        self.assertEqual(loaded.product.target_datetime().tzinfo.key, "Europe/Budapest")
+
     def test_legacy_single_product_yaml_still_loads(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "legacy.yaml"

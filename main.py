@@ -22,7 +22,7 @@ def main() -> int:
         str(APP_FILE),
         "--server.address=127.0.0.1",
         f"--server.port={args.port}",
-        "--server.headless=true",
+        "--server.headless=false",
         "--browser.gatherUsageStats=false",
     ]
     try:

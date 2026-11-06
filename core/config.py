@@ -8,6 +8,7 @@ from typing import Any
 import yaml
 
 from core.conditions import ProductConfig
+from core.markets import MARKETS, market_for_url
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -39,7 +40,10 @@ class AppSettings:
         products = []
         for configured_product in self.products:
             product = asdict(configured_product)
-            product["max_price_ron"] = float(configured_product.max_price_ron)
+            product.pop("max_price_ron", None)
+            product["max_price_native"] = float(configured_product.max_price_ron)
+            product["currency"] = configured_product.currency
+            product["market"] = configured_product.market.code
             products.append(product)
         return {
             "timezone": self.timezone_name,
@@ -87,10 +91,26 @@ def load_settings(path: str | Path = DEFAULT_CONFIG_PATH) -> AppSettings:
     for product_raw in product_entries:
         if not isinstance(product_raw, dict):
             raise ValueError("Each configured product must be a YAML mapping.")
+        product_url = str(product_raw.get("product_url", ""))
+        market = market_for_url(product_url) if product_url.strip() else MARKETS["ro"]
+        configured_currency = str(product_raw.get("currency", market.currency)).upper()
+        configured_market = str(product_raw.get("market", market.code)).lower()
+        if configured_market != market.code:
+            raise ValueError(
+                f"Configured market {configured_market.upper()} does not match "
+                f"the eMAG URL market {market.code.upper()}."
+            )
+        if configured_currency != market.currency:
+            raise ValueError(
+                f"Configured currency {configured_currency} does not match "
+                f"eMAG {market.code.upper()} currency {market.currency}."
+            )
         products.append(
             ProductConfig(
-                product_url=str(product_raw.get("product_url", "")),
-                max_price_ron=Decimal(str(product_raw.get("max_price_ron", 0))),
+                product_url=product_url,
+                max_price_ron=Decimal(
+                    str(product_raw.get("max_price_native", product_raw.get("max_price_ron", 0)))
+                ),
                 quantity=int(product_raw.get("quantity", 1)),
                 target_date=str(product_raw.get("target_date", "")),
                 target_time=str(product_raw.get("target_time", "12:00:00")),
@@ -108,7 +128,9 @@ def load_settings(path: str | Path = DEFAULT_CONFIG_PATH) -> AppSettings:
                         raw.get("deadline_minutes_after_target", 15),
                     )
                 ),
-                timezone_name=str(product_raw.get("timezone_name", raw.get("timezone", "Europe/Bucharest"))),
+                timezone_name=str(
+                    product_raw.get("timezone_name", market.timezone_name)
+                ),
             )
         )
     product = products[0]

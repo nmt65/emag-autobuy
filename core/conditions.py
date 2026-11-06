@@ -6,8 +6,15 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Iterable
-from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from core.markets import (
+    MARKETS,
+    Market,
+    MarketUrlError,
+    market_for_url,
+    validate_market_product_url,
+)
 
 
 PRICE_PATTERN = re.compile(
@@ -59,15 +66,10 @@ def detect_availability(text: str) -> bool | None:
 
 
 def validate_emag_product_url(url: str) -> str:
-    parsed = urlparse((url or "").strip())
-    host = (parsed.hostname or "").lower()
-    if parsed.scheme != "https" or host not in {"emag.ro", "www.emag.ro"}:
-        raise ConfigurationError("Product URL must be an HTTPS emag.ro page.")
-    if not parsed.path or parsed.path == "/":
-        raise ConfigurationError("Enter a product page URL, not the eMAG home page.")
-    if not re.search(r"/pd/[A-Za-z0-9]+", parsed.path, re.IGNORECASE):
-        raise ConfigurationError("The eMAG product URL must contain its /pd/ product code.")
-    return parsed.geturl()
+    try:
+        return validate_market_product_url(url)
+    except MarketUrlError as exc:
+        raise ConfigurationError(str(exc)) from exc
 
 
 @dataclass(frozen=True)
@@ -84,10 +86,22 @@ class ProductConfig:
     deadline_minutes_after_target: int = 15
     timezone_name: str = "Europe/Bucharest"
 
+    @property
+    def market(self) -> Market:
+        if not self.product_url.strip():
+            return MARKETS["ro"]
+        return market_for_url(self.product_url)
+
+    @property
+    def currency(self) -> str:
+        return self.market.currency
+
     def validate(self) -> None:
         validate_emag_product_url(self.product_url)
         if not self.max_price_ron.is_finite() or self.max_price_ron <= 0:
-            raise ConfigurationError("Maximum price must be greater than 0 RON.")
+            raise ConfigurationError(
+                f"Maximum price must be greater than 0 {self.currency}."
+            )
         if type(self.quantity) is not int or self.quantity < 1 or self.quantity > MAX_REQUESTED_QUANTITY:
             raise ConfigurationError(
                 f"Quantity must be between 1 and {MAX_REQUESTED_QUANTITY}."
@@ -101,8 +115,11 @@ class ProductConfig:
         _ = self.target_datetime()
 
     def target_datetime(self) -> datetime:
-        if self.timezone_name != "Europe/Bucharest":
-            raise ConfigurationError("Scheduling timezone must be Europe/Bucharest.")
+        expected_timezone = self.market.timezone_name
+        if self.timezone_name != expected_timezone:
+            raise ConfigurationError(
+                f"Scheduling timezone for eMAG {self.market.code.upper()} must be {expected_timezone}."
+            )
         if not re.fullmatch(r"\d{2}:\d{2}:\d{2}", self.target_time):
             raise ConfigurationError("Target time must use HH:MM:SS.")
         try:
@@ -136,6 +153,7 @@ class ProductObservation:
     can_purchase: bool
     page_url: str
     observed_at: datetime
+    currency: str = "RON"
 
 
 @dataclass(frozen=True)
@@ -148,12 +166,17 @@ def evaluate_product_conditions(
     observation: ProductObservation, config: ProductConfig
 ) -> ConditionResult:
     reasons: list[str] = []
+    if observation.currency.upper() != config.currency:
+        reasons.append(
+            f"Observed currency {observation.currency.upper()} does not match "
+            f"the configured market currency {config.currency}."
+        )
     if observation.price_ron is None:
         reasons.append("Displayed price could not be read.")
     elif observation.price_ron > config.max_price_ron:
         reasons.append(
-            f"Price {observation.price_ron:.2f} RON exceeds the maximum "
-            f"{config.max_price_ron:.2f} RON."
+            f"Price {observation.price_ron:.2f} {config.currency} exceeds the maximum "
+            f"{config.max_price_ron:.2f} {config.currency}."
         )
     if observation.in_stock is None:
         reasons.append("Product availability could not be verified.")
