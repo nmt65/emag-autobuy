@@ -2,6 +2,8 @@
 
 Aplicație **locală** pentru monitorizarea produselor eMAG și pregătirea unui coș comun. Folosește Python 3.12+, Playwright, Streamlit, SQLite și PyYAML; este gândită pentru Windows 11.
 
+**Suportul implementat acum este doar pentru eMAG România (`emag.ro`, RON, Europe/Bucharest).** Domeniile Bulgaria și Ungaria nu sunt încă acceptate de validare sau de adaptoarele DOM. Vezi planul de extindere în [`docs/MULTI_MARKET_PLAN.md`](docs/MULTI_MARKET_PLAN.md). Pagina Vercel menționează aceeași limită.
+
 Codul este public sub licența MIT. Proiectul Vercel inclus în acest repository publică doar pagina informativă statică din `public/`; nu găzduiește dashboardul, profilul Playwright, baza SQLite sau fluxul de cumpărare. Pornește aplicația pe calculatorul tău urmând pașii de mai jos.
 
 Copiază `config.example.yaml` ca `config.yaml` pentru un exemplu neutru sau pornește fără configurare: aplicația generează automat un fișier local gol. `config.yaml`, profilul browserului, baza de date și jurnalele nu se publică.
