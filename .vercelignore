@@ -1,0 +1,5 @@
+# Publish only the static landing page and Vercel's routing/build configuration.
+/*
+!vercel.json
+!public
+!public/**
