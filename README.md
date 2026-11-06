@@ -6,6 +6,8 @@ Aplicație **locală** pentru monitorizarea produselor eMAG și pregătirea unui
 
 Codul este public sub licența MIT. Proiectul Vercel inclus în acest repository publică doar pagina informativă statică din `public/`; nu găzduiește dashboardul, profilul Playwright, baza SQLite sau fluxul de cumpărare. Pornește aplicația pe calculatorul tău urmând pașii de mai jos.
 
+Pagina publică: [emag-autobuy.vercel.app](https://emag-autobuy.vercel.app).
+
 Copiază `config.example.yaml` ca `config.yaml` pentru un exemplu neutru sau pornește fără configurare: aplicația generează automat un fișier local gol. `config.yaml`, profilul browserului, baza de date și jurnalele nu se publică.
 
 ## Reguli pentru comenzi
@@ -112,7 +114,7 @@ Pentru Chrome mai vechi, rămâne disponibil profilul Playwright separat; autent
 
 Vercel servește numai pagina statică din `public/`. Aplicația de cumpărare nu este un serviciu public și nu trimite date de cont, coș sau browser către Vercel. Pagina statică nu conține formular de comandă și nu poate plasa achiziții.
 
-Pentru a publica pagina, importă repository-ul GitHub în Vercel și selectează presetarea **Other**, fără comandă de build; `vercel.json` setează folderul de ieșire `public`. Aceasta nu instalează și nu pornește aplicația Python.
+Pagina curentă a fost publicată cu Vercel CLI, presetarea **Other** și folderul de ieșire `public`. Fișierul `.vercelignore` permite doar `public/index.html` și `vercel.json`; setările, profilul, baza, testele și codul workerului rămân în repository-ul GitHub, nu în deployment. GitHub nu este legat pentru redeploy automat; după schimbări în pagina statică, autentifică-te în Vercel CLI și rulează `npx vercel deploy --prod`. Aceasta nu instalează și nu pornește aplicația Python.
 
 ## Licență
 
